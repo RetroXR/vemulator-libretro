@@ -34,6 +34,12 @@ VE_VMS_FLASH::VE_VMS_FLASH(VE_VMS_RAM *_ram)
 	rootBlock     = new byte[0x200];
 	data          = new byte[0x20000];
 	
+	// NULL, because the destructor tests it and only ONE load path ever
+	// assigns it: a .bin with flash writing enabled. Left indeterminate, a
+	// .vms or .dci -- or a .bin with writing off -- reaches ~VE_VMS_FLASH
+	// with garbage here, the `if(flashWriter)` guard passes, and rfclose
+	// takes the process down on every unload and every reset().
+	flashWriter   = NULL;
 	IsRealFlash   = true;
 	IsSaveEnabled = true;
 	
