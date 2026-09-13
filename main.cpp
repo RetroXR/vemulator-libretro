@@ -283,16 +283,10 @@ RETRO_API bool retro_load_game(const struct retro_game_info *game)
    //Check extension
    char *path = (char *)malloc(strlen(game->path) + 1);
    strcpy(path, game->path);
-   // The LAST dot, not the first. Android hands a core an absolute path
-   // under its package name -- /data/user/0/com.xenu.retroxr/files/... --
-   // so the first dot is in the package and ext came out as
-   // ".xenu.retroxr/files/...", matching nothing. Every load on that
-   // platform fell through the chain below with no ROM loaded, and the
-   // CPU was started anyway.
+   // Last dot: directory names may contain dots too.
    char *ext = strrchr(path, '.');
    if(!ext)
    {
-      // A path with no dot at all reached strcmp(NULL, ...) below.
       free(path);
       return false;
    }
