@@ -1,8 +1,8 @@
 # Build the retroXR VeMUlator core for Windows and Android and publish it as a
 # release, so retroXR's CoreDownloadManager can fetch it.
 #
-# This fork fixes three faults on the load/unload path, each of which takes the
-# process down rather than failing:
+# This fork fixes four faults, each of which takes the process down rather than
+# failing:
 #
 #   * VE_VMS_FLASH::flashWriter is the one member the constructor never
 #     initialises, and the destructor closes it behind a guard that therefore
@@ -12,6 +12,9 @@
 #     a core is handed /data/user/0/<package>/files/... -- it matched nothing and
 #     the CPU was started with no ROM loaded.
 #   * a path with no dot at all handed NULL to strcmp.
+#   * every XRAM access adds STAD to its index, which reaches up to 0xFF past
+#     the end of a 0x7C-byte bank. A game that sets STAD corrupts the heap, and
+#     the next reset() or unload crashes freeing it.
 #
 #   Windows  vemulator_libretro.dll.zip          containing vemulator_libretro.dll
 #   Android  vemulator_libretro_android.so.zip   containing vemulator_libretro_android.so
@@ -160,9 +163,8 @@ jobs:
           Windows x86_64 and Android arm64-v8a. The source for these binaries is
           this tag.
 
-          Over the stock buildbot build this fixes three faults on the
-          load/unload path, each of which took the process down rather than
-          failing:
+          Over the stock buildbot build this fixes four faults, each of which
+          took the process down rather than failing:
 
           * `VE_VMS_FLASH::flashWriter` is the one member the constructor never
             initialises, and the destructor closes it behind a guard that
@@ -173,6 +175,10 @@ jobs:
             core is handed `/data/user/0/<package>/files/...`, so it matched
             nothing and the CPU was started with no ROM loaded.
           * a path with no dot at all handed NULL to `strcmp`.
+          * every XRAM access adds `STAD` to its index, which reaches up to 0xFF
+            past the end of a 0x7C-byte bank. A game that sets `STAD` (Chao
+            Adventure 2 does) corrupts the heap, and the next `reset()` or unload
+            crashes freeing it.
           NOTES
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$TAG" \
