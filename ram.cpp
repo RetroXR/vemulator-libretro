@@ -25,9 +25,11 @@ VE_VMS_RAM::VE_VMS_RAM()
 
    data      = new byte[1024];
    wram      = new byte[512];
-   xram0     = new byte[0x7C];
-   xram1     = new byte[0x7C];
-   xram2     = new byte[0x7C];
+   // A bank holds 0x7C bytes, but every access adds STAD (0-255) to the
+   // index, which reaches up to 0xFF past the end of the bank.
+   xram0     = new byte[0x7C + 0x100]();
+   xram1     = new byte[0x7C + 0x100]();
+   xram2     = new byte[0x7C + 0x100]();
 
    T1RL_data = 0;
    T1RH_data = 0;
