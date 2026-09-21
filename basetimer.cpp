@@ -101,3 +101,9 @@ void VE_VMS_BASETIMER::runTimer()
 		}
 	}
 }
+
+void VE_VMS_BASETIMER::serialize(VE_STATE &s)
+{
+   s.u32(BTR);
+   s.f64(frac);
+}

@@ -32,6 +32,7 @@
 #include "interrupts.h"
 #include "serial.h"
 #include "bitwisemath.h"
+#include "state.h"
 
 class VMU
 {
@@ -51,6 +52,14 @@ public:
     VMU(uint16_t *_frameBuffer);
     
     ~VMU();
+
+    /* The machine's whole state, in one pass. serializeSize() counts it,
+       saveState() writes it and loadState() reads it back; all three name the
+       same fields through VMU::serialize, so none can drift from the others. */
+    size_t serializeSize();
+    bool   saveState(void *buffer, size_t size);
+    bool   loadState(const void *buffer, size_t size);
+    void   serialize(VE_STATE &s);
     
 
     int loadBIOS(const char *filePath);

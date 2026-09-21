@@ -284,3 +284,24 @@ void VE_VMS_SERIAL::deliver(int index, byte value)
          completeTransfer(iface, index);
    }
 }
+
+void VE_VMS_SERIAL::serialize(VE_STATE &s)
+{
+   int i;
+
+   for(i = 0; i < SERIAL_IFACE_COUNT; i++)
+   {
+      Iface &iface = ifaces[i];
+
+      s.u8(iface.sconOld);
+      s.b(iface.sending);
+      s.i32(iface.cyclesLeft);
+      s.u8(iface.shiftOut);
+      s.b(iface.pendingOut);
+      s.u8(iface.outValue);
+      s.b(iface.awaitingReply);
+      s.i32(iface.replyTimeout);
+   }
+
+   s.b(cabled);
+}

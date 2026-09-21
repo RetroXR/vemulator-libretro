@@ -216,3 +216,20 @@ byte *VE_VMS_RAM::getData()
 {
 	return data;
 }
+
+/* Everything the guest can change: the register file and the two banks behind
+   it, the extra display banks, and the four timer 1 values kept here because
+   they are read back through this class. */
+void VE_VMS_RAM::serialize(VE_STATE &s)
+{
+   s.raw(data,  1024);
+   s.raw(wram,   512);
+   s.raw(xram0, 0x7C + 0x100);
+   s.raw(xram1, 0x7C + 0x100);
+   s.raw(xram2, 0x7C + 0x100);
+
+   s.u8(T1LC_Temp);
+   s.u8(T1HC_Temp);
+   s.i32(T1RL_data);
+   s.i32(T1RH_data);
+}

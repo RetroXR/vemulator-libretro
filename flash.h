@@ -25,12 +25,15 @@
 #include "common.h"
 #include "flashfile.h"
 #include "ram.h"
+#include "state.h"
 
 class VE_VMS_FLASH
 {
 public:
     VE_VMS_FLASH(VE_VMS_RAM *_ram);
     ~VE_VMS_FLASH();
+
+    void serialize(VE_STATE &s);
 
     ///Loads raw VMS data to be easily accessed.
     //romType 0: Memory Dump (.bin)

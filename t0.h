@@ -22,12 +22,15 @@
 #include "ram.h"
 #include "interrupts.h"
 #include "cpu.h"
+#include "state.h"
 
 class VE_VMS_TIMER0
 {
 public:
     VE_VMS_TIMER0(VE_VMS_RAM *_ram, VE_VMS_INTERRUPTS *_intHandler, VE_VMS_CPU *_cpu, byte *_prescaler);
     ~VE_VMS_TIMER0();
+
+    void serialize(VE_STATE &s);
 
     void runTimer();
     

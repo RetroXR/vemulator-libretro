@@ -668,9 +668,33 @@ RETRO_API void retro_run(void)
 	vmu->audio->generateSignal(audio_batch_cb);
 }
 
-RETRO_API size_t retro_serialize_size(void) { return 0; }
-RETRO_API bool retro_serialize(void *data, size_t size) {return false;}
-RETRO_API bool retro_unserialize(const void *data, size_t size) {return false;}
+/* Save states. The flash is most of the size -- it is 128KB of the machine and
+   a game writes to it -- so a state is a little over that. It is a fixed size
+   for a given build, which is what the frontend asks for once and then keeps
+   handing back. */
+RETRO_API size_t retro_serialize_size(void)
+{
+   if(!vmu)
+      return 0;
+
+   return vmu->serializeSize();
+}
+
+RETRO_API bool retro_serialize(void *data, size_t size)
+{
+   if(!vmu || !data)
+      return false;
+
+   return vmu->saveState(data, size);
+}
+
+RETRO_API bool retro_unserialize(const void *data, size_t size)
+{
+   if(!vmu || !data)
+      return false;
+
+   return vmu->loadState(data, size);
+}
 
 RETRO_API void retro_cheat_reset(void) { }
 

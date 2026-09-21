@@ -20,6 +20,7 @@
 #define _INTERRUPTS_H_
 
 #include "common.h"
+#include "state.h"
 
 class VE_VMS_INTERRUPTS
 {
@@ -27,6 +28,8 @@ class VE_VMS_INTERRUPTS
 public:
     VE_VMS_INTERRUPTS();
     ~VE_VMS_INTERRUPTS();
+
+    void serialize(VE_STATE &s);
 
     //Setters
     void setReset();

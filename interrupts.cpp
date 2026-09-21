@@ -171,3 +171,19 @@ byte VE_VMS_INTERRUPTS::getP3()
 {
 	return P3_data;
 }
+
+void VE_VMS_INTERRUPTS::serialize(VE_STATE &s)
+{
+   s.b(P3_Taken);
+   s.u8(Reset);
+   s.u8(INT0);
+   s.u8(INT1);
+   s.u8(INT2);
+   s.u8(INT3);
+   s.u8(T0HOV);
+   s.u8(T1HLOV);
+   s.u8(SIO0);
+   s.u8(SIO1);
+   s.u8(RFB);
+   s.u8(P3_data);
+}

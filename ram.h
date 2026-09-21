@@ -20,6 +20,7 @@
 #define _RAM_H_
 
 #include "common.h"
+#include "state.h"
 
 //SFR
 #define ACC 0x100
@@ -89,6 +90,8 @@ public:
 
     VE_VMS_RAM();
     ~VE_VMS_RAM();
+
+    void serialize(VE_STATE &s);
 
     //Setters and getters
     byte readByte(size_t adr);

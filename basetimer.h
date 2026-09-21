@@ -22,12 +22,15 @@
 #include "ram.h"
 #include "interrupts.h"
 #include "cpu.h"
+#include "state.h"
 
 class VE_VMS_BASETIMER
 {
 public:
     VE_VMS_BASETIMER(VE_VMS_RAM *_ram, VE_VMS_INTERRUPTS *_intHandler, VE_VMS_CPU *_cpu);
     ~VE_VMS_BASETIMER();
+
+    void serialize(VE_STATE &s);
 
     void runTimer();
     

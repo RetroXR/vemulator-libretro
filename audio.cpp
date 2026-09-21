@@ -173,3 +173,17 @@ void VE_VMS_AUDIO::setEnabled(bool e)
 	IsEnabled = e;
 }
 
+void VE_VMS_AUDIO::serialize(VE_STATE &s)
+{
+   s.i32(T1LR_reg);
+   s.i32(T1LC_reg);
+   s.i32(T1HR_reg);
+   s.i32(T1HC_reg);
+   s.b(LongMode);
+   s.b(DoubleRate);
+   s.b(IsEnabled);
+   s.f64(frequency);
+   s.f64(phase);
+   s.f64(sampleDebt);
+   s.i32(interval);
+}

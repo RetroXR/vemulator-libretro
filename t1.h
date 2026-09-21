@@ -22,12 +22,15 @@
 #include "audio.h"
 #include "ram.h"
 #include "interrupts.h"
+#include "state.h"
 
 class VE_VMS_TIMER1
 {
 public:
     VE_VMS_TIMER1(VE_VMS_RAM *_ram, VE_VMS_INTERRUPTS *_intHandler, VE_VMS_AUDIO *_audio);
     ~VE_VMS_TIMER1();
+
+    void serialize(VE_STATE &s);
 
     void runTimer();
     

@@ -25,6 +25,7 @@
 #include "flash.h"
 #include "interrupts.h"
 #include "bitwisemath.h"
+#include "state.h"
 
 class VE_VMS_CPU
 {
@@ -37,6 +38,8 @@ public:
 
 	VE_VMS_CPU(VE_VMS_RAM *_ram, VE_VMS_ROM *_rom, VE_VMS_FLASH *_flash, VE_VMS_INTERRUPTS *_intHandler, bool hle);
 	~VE_VMS_CPU();
+
+    void serialize(VE_STATE &s);
 	
 	double getCurrentFrequency();
 	void setFrequency(double f);

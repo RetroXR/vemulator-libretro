@@ -2154,3 +2154,22 @@ int VE_VMS_CPU::processInstruction(bool dbg)
 	
 	return cycles;
 }
+
+void VE_VMS_CPU::serialize(VE_STATE &s)
+{
+   unsigned pc = (unsigned)PC;
+
+   s.i32(state);
+   s.i32(EXTOld);
+   s.i32(EXTNew);
+   s.b(P3_taken);
+   s.u32(pc);
+   s.f64(frequency);
+   s.i32(interruptLevel);
+   s.i32(currentInterrupt);
+   s.b(interruptsMasked);
+   s.i32(instructionCount);
+   s.b(IsHLE);
+
+   PC = (size_t)pc;
+}

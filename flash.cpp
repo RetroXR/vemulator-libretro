@@ -483,3 +483,10 @@ size_t VE_VMS_FLASH::getFileData(VE_VMS_FLASH_FILE fileinfo, byte *out)
 
 	return blockCount * 512;
 }
+
+/* The whole 128KB. The parsed views built at load time are not saved: nothing
+   writes them once the machine is running, and a load rebuilds them. */
+void VE_VMS_FLASH::serialize(VE_STATE &s)
+{
+   s.raw(data, DATA_SIZE);
+}

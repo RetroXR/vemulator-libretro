@@ -155,3 +155,12 @@ void VE_VMS_TIMER0::runTimer()
 	
 	ram->writeByte_RAW(T0CNT, TCNT_data);
 }
+
+void VE_VMS_TIMER0::serialize(VE_STATE &s)
+{
+   s.i32(TRLStarted);
+   s.i32(TRHStarted);
+   s.f64(TRL_data);
+   s.f64(TRH_data);
+   s.u8(T0IN_old);
+}

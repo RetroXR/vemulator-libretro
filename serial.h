@@ -22,6 +22,7 @@
 #include "common.h"
 #include "ram.h"
 #include "interrupts.h"
+#include "state.h"
 
 /* The LC86K's two synchronous serial channels, SIO0 and SIO1 -- the cable a
    VMU uses to talk to another VMU.
@@ -57,6 +58,8 @@ class VE_VMS_SERIAL
 {
 public:
     VE_VMS_SERIAL(VE_VMS_RAM *_ram, VE_VMS_INTERRUPTS *_intHandler);
+
+    void serialize(VE_STATE &s);
 
     /* Advance both channels by one CPU cycle. Picks up a transfer the guest
        started by setting SCON.CTRL since the last call. */

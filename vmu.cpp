@@ -415,3 +415,79 @@ void VMU::reset()
    useT1ELD     = false; //Some mini-game programmers (Especially homebrew creators) don't use it
    cycles_left  = 0;
 }
+
+/* A stamp so a state from a different build of the core is refused rather
+   than read as though it matched. */
+#define VMU_STATE_MAGIC   0x564D5531u   /* "VMU1" */
+#define VMU_STATE_VERSION 1u
+
+void VMU::serialize(VE_STATE &s)
+{
+   unsigned magic   = VMU_STATE_MAGIC;
+   unsigned version = VMU_STATE_VERSION;
+
+   s.u32(magic);
+   s.u32(version);
+
+   /* Not ours, or not this version of ours. Say so rather than reading the
+      rest of it into the machine. */
+   if(magic != VMU_STATE_MAGIC || version != VMU_STATE_VERSION)
+   {
+      s.fail();
+      return;
+   }
+
+   ram->serialize(s);
+   flash->serialize(s);
+   cpu->serialize(s);
+   t0->serialize(s);
+   t1->serialize(s);
+   baseTimer->serialize(s);
+   intHandler->serialize(s);
+   audio->serialize(s);
+   serial->serialize(s);
+
+   /* What the machine itself carries: the cycle the CPU is part way through,
+      the prescaler, the clock the oscillator control register settled on, and
+      the connector. The frame buffer is left out -- it is redrawn from XRAM
+      every frame -- and so is ROM, which the BIOS fills at load and nothing
+      writes afterwards. */
+   s.u8(linkConnectorBits);
+   s.i32(ccount);
+   s.i64(cycle_count);
+   s.i64(time_reg);
+   s.i64(frame_skip);
+   s.f64(CPS);
+   s.u8(prescaler);
+   s.i32(pcount);
+   s.i32(oldPRR);
+   s.i32(OSC);
+   s.i32(OCR_old);
+   s.b(threadReady);
+   s.b(inSleepState);
+   s.b(BIOSExists);
+   s.b(enableSound);
+   s.b(useT1ELD);
+   s.i32(cycles_left);
+}
+
+size_t VMU::serializeSize()
+{
+   VE_STATE s(VE_STATE::COUNT, NULL, 0);
+   serialize(s);
+   return s.used();
+}
+
+bool VMU::saveState(void *buffer, size_t size)
+{
+   VE_STATE s(VE_STATE::SAVE, (byte*)buffer, size);
+   serialize(s);
+   return s.ok();
+}
+
+bool VMU::loadState(const void *buffer, size_t size)
+{
+   VE_STATE s(VE_STATE::LOAD, (byte*)buffer, size);
+   serialize(s);
+   return s.ok();
+}

@@ -24,6 +24,7 @@
 #include "common.h"
 #include "cpu.h"
 #include "ram.h"
+#include "state.h"
 
 /* The VMU's sound is one square wave: timer 1's low half free-runs, T1LR sets
    the period and T1LC the point in it where the output flips, and the pin
@@ -34,6 +35,8 @@ public:
     VE_VMS_AUDIO(VE_VMS_CPU *_cpu, VE_VMS_RAM *_ram);
 
     ~VE_VMS_AUDIO();
+
+    void serialize(VE_STATE &s);
 
     /* One frame of audio, always: a frame of silence still has to be handed
        over, or the frontend starves. */
