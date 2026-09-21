@@ -41,20 +41,31 @@ public:
 
     void setAudioFrequency(double f);
 
-    void setT1(int b);
-
-    void setT1C(int b);
+    /* The shape of the pulse timer 1 is generating, straight from its
+       registers. `longMode` is the 9-to-16 bit generator, where T1HR sets how
+       many 8-bit intervals make up the long one and T1HC lengthens the low
+       time of that many of them by one count. `doubleRate` is the half-Tcyc
+       clock, which ticks twice per cycle. */
+    void setPulse(int lr, int lc, int hr, int hc, bool longMode, bool doubleRate);
 
     void setEnabled(bool e);
 
 private:
 	int T1LR_reg;
 	int T1LC_reg;
+	int T1HR_reg;
+	int T1HC_reg;
+	bool LongMode;
+	bool DoubleRate;
 	bool IsEnabled;
 
 	double frequency;	//The clock timer 1 counts, which follows OCR
 
 	double phase;		//carried across frames, so the wave has no step in it
+
+	/* Which of the long generator's small intervals the wave is in, for
+	   placing the extra low ticks T1HC asks for. */
+	int interval;
 
 	double sampleDebt;	//SAMPLE_RATE / FPS is not a whole number
 

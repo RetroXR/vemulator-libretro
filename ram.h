@@ -81,9 +81,10 @@ public:
     byte T1LC_Temp;
     byte T1HC_Temp;
     
-    //Timer 1 reload registers (Stored here since they will be used in this class too)
-    byte T1RL_data;
-    byte T1RH_data;
+    /* Timer 1's counters. Wider than a byte on purpose: the overflow test is
+       "past 255", which a byte can never be. */
+    int T1RL_data;
+    int T1RH_data;
 
 
     VE_VMS_RAM();

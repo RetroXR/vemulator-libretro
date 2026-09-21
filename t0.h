@@ -41,6 +41,10 @@ private:
     
     double TRL_data;
 	double TRH_data;
+
+	/* Last level seen on the T0IN pin, for counting edges when T0L is clocked
+	   externally rather than from the prescaler. */
+	byte T0IN_old;
 };
 
 #endif // _T0_H_

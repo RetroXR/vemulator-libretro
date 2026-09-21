@@ -30,6 +30,8 @@ VE_VMS_TIMER0::VE_VMS_TIMER0(VE_VMS_RAM *_ram, VE_VMS_INTERRUPTS *_intHandler, V
 
    TRL_data   = 0;
    TRH_data   = 0;
+
+   T0IN_old   = 0;
 }
 
 VE_VMS_TIMER0::~VE_VMS_TIMER0()
@@ -43,13 +45,31 @@ void VE_VMS_TIMER0::runTimer()
 	bool TRLEnabled    = (TCNT_data & 64) != 0;
 	bool TRHEnabled    = (TCNT_data & 128) != 0;
 	bool TRLONGEnabled = (TCNT_data & 32) != 0;
-	
-	//Increase timers
-	if(TRLEnabled) 
+	bool TRLExternal   = (TCNT_data & 16) != 0;
+
+	/* T0L takes either the prescaler or a signal on the connector, which is
+	   how one VMU counts pulses from another. T0LEXT picks between them and
+	   ISL bit 0 picks the pin: P72 is connector pin 13, P73 is pin 6. T0H is
+	   always the prescaler. */
+	bool T0LTick;
+
+	if(TRLExternal)
 	{
-		if(TRLStarted++ == 0) 
+		byte pinMask = (ram->readByte_RAW(ISL) & 1) ? 0x08 : 0x04;
+		byte level   = (ram->readByte_RAW(P7) & pinMask) ? 1 : 0;
+
+		T0LTick  = (level != 0) && (T0IN_old == 0);
+		T0IN_old = level;
+	}
+	else
+		T0LTick = (*prescaler == 1);
+
+	//Increase timers
+	if(TRLEnabled)
+	{
+		if(TRLStarted++ == 0)
 			TRL_data = ram->readByte_RAW(T0LR);
-		else if(*prescaler == 1)
+		else if(T0LTick)
          TRL_data++;
 	} 
 	else 
@@ -91,13 +111,14 @@ void VE_VMS_TIMER0::runTimer()
 	//Overflow in TRL_data, 16-bit mode
 	else if(TRL_data > 255 && TRLONGEnabled)
 	{
-		TRH_data++;
+		/* The carry into the high half, which only counts if it is running.
+		   No interrupt: in 16-bit mode the two halves are one counter, and
+		   only the high overflow is an event. */
+		if(TRHEnabled)
+			TRH_data++;
 
-
-		if (TCNT_data & 1) intHandler->setINT2();
 		//Reload contents
 		TRL_data = ram->readByte_RAW(T0LR);
-		//TRL_data = 0;
 	}
 
 	//Overflow in TRH_data, 8-bit mode

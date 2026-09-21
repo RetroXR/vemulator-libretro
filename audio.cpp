@@ -24,8 +24,13 @@ VE_VMS_AUDIO::VE_VMS_AUDIO(VE_VMS_CPU *_cpu, VE_VMS_RAM *_ram)
 {
 	T1LR_reg = 0;
 	T1LC_reg = 128;
+	T1HR_reg = 0;
+	T1HC_reg = 0;
+	LongMode = false;
+	DoubleRate = false;
 	IsEnabled = false;
 	phase = 0.0;
+	interval = 0;
 	sampleDebt = 0.0;
 
 	ram = _ram;
@@ -62,24 +67,49 @@ void VE_VMS_AUDIO::generateSignal(retro_audio_sample_batch_t &audio_batch_cb)
 
 	/* The period of the wave in samples, and how much of it the output spends
 	   low. T1LR counts up to 256, so 256 - T1LR is the period in timer ticks;
-	   T1LC is where in that period the output flips. */
+	   T1LC is where in that period the output flips.
+	 *
+	 *   cycle           = (256 - T1LR) x Ttc
+	 *   "L" pulse width = (T1LC - T1LR) x Ttc
+	 *
+	 * The long generator repeats that interval (256 - T1HR) times and spends
+	 * T1HC extra ticks low across the whole repetition, one interval at a
+	 * time, so that
+	 *
+	 *   total "L" width = ((256 - T1HR) x (T1LC - T1LR) + T1HC) x Ttc
+	 *
+	 * Which interval an extra tick lands in matters to the waveform, so they
+	 * are placed rather than averaged: the first T1HC of them are one tick
+	 * longer. `intervals` is how many make up the long one, and `interval` is
+	 * where in it the wave currently stands. */
 	double period = 0.0;
-	double lowFraction = 0.0;
+	double lowTicks = 0.0;
+	double tickFraction = 0.0;
+	int    intervals = 1;
 
 	if(IsEnabled && T1LR_reg < 256)
 	{
-		period = (256.0 - T1LR_reg) * ((double)SAMPLE_RATE / frequency);
+		double ticksPerCycle = DoubleRate ? 2.0 : 1.0;
 
-		lowFraction = (T1LC_reg - T1LR_reg) / (256.0 - T1LR_reg);
-		if(lowFraction < 0.0) lowFraction = -lowFraction;
-		if(lowFraction > 1.0) lowFraction = 1.0;
+		period = (256.0 - T1LR_reg)
+		       * ((double)SAMPLE_RATE / (frequency * ticksPerCycle));
+
+		lowTicks     = T1LC_reg - T1LR_reg;
+		tickFraction = 1.0 / (256.0 - T1LR_reg);
+
+		if(LongMode && T1HR_reg < 256)
+			intervals = 256 - T1HR_reg;
 	}
+
+	if(interval >= intervals)
+		interval = 0;
 
 	//Above what this sample rate can carry, so there is no wave to draw
 	if(period < 2.0)
 	{
 		memset(sampleArray, 0, count * 2 * sizeof(int16_t));
 		phase = 0.0;
+		interval = 0;
 		audio_batch_cb(sampleArray, count);
 		return;
 	}
@@ -89,14 +119,26 @@ void VE_VMS_AUDIO::generateSignal(retro_audio_sample_batch_t &audio_batch_cb)
 
 		for(i = 0; i < count; i++)
 		{
-			int16_t amplitude = (phase < lowFraction) ? AUDIO_LOW : AUDIO_HIGH;
+			/* This interval's low time: one tick longer for the first T1HC of
+			   them, which is how the long generator spends its extra ticks. */
+			double lowHere = lowTicks;
+			int16_t amplitude;
+
+			if(interval < T1HC_reg)
+				lowHere += 1.0;
+
+			amplitude = (phase < lowHere * tickFraction) ? AUDIO_LOW : AUDIO_HIGH;
 
 			sampleArray[i * 2]     = amplitude;
 			sampleArray[i * 2 + 1] = amplitude;
 
 			phase += step;
-			if(phase >= 1.0)
-				phase -= (double)(int)phase;
+			while(phase >= 1.0)
+			{
+				phase -= 1.0;
+				if(++interval >= intervals)
+					interval = 0;
+			}
 		}
 	}
 
@@ -108,21 +150,25 @@ void VE_VMS_AUDIO::setAudioFrequency(double f)
 	frequency = f;
 }
 
-void VE_VMS_AUDIO::setT1(int b)
+void VE_VMS_AUDIO::setPulse(int lr, int lc, int hr, int hc,
+                            bool longMode, bool doubleRate)
 {
-	T1LR_reg = b & 0xFF;
-}
-
-void VE_VMS_AUDIO::setT1C(int b)
-{
-	T1LC_reg = b & 0xFF;
+	T1LR_reg   = lr & 0xFF;
+	T1LC_reg   = lc & 0xFF;
+	T1HR_reg   = hr & 0xFF;
+	T1HC_reg   = hc & 0xFF;
+	LongMode   = longMode;
+	DoubleRate = doubleRate;
 }
 
 void VE_VMS_AUDIO::setEnabled(bool e)
 {
 	//So the first cycle of a note is a whole one
 	if(e && !IsEnabled)
+	{
 		phase = 0.0;
+		interval = 0;
+	}
 
 	IsEnabled = e;
 }

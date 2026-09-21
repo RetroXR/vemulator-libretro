@@ -292,17 +292,6 @@ void VMU::runCycle()
 	}
 	OCR_old = OCR_data;
 
-	//Set T1LC and T1HC when bit 4 of T1CNT is 1
-	byte T1CNT_data = ram->readByte_RAW(T1CNT);
-	bool T1CUpdate = (T1CNT_data & 16) != 0;
-	if(T1CUpdate)
-	{
-		ram->writeByte_RAW(T1LC, ram->T1LC_Temp);
-		ram->writeByte_RAW(T1HC, ram->T1HC_Temp);
-
-		audio->setT1C(ram->T1LC_Temp);
-	}
-
 	/* 0x31 is the BIOS's "the clock has been set" flag. Holding it means the
 	   BIOS takes the host time seeded in setDate() instead of stopping at its
 	   own set-the-clock screen.
@@ -335,16 +324,20 @@ void VMU::runCycle()
 	if (PRR != oldPRR) 
 		pcount = PRR;
 		
-	if (pcount / 256 == 1) 
+	/* An 8 bit up-counter reloaded from T0PRR when it overflows, so it hands
+	   timer 0 one tick every (256 - T0PRR) cycles. Counting first and testing
+	   after is what makes that exact: testing first spends an extra cycle in
+	   the period, which is 0.4% at T0PRR=0 and a factor of two at 0xFF. */
+	pcount++;
+
+	if (pcount > 255)
 	{
 		prescaler = 1;
 		pcount = PRR;
-	} 
-	else 
-	{
-		prescaler = 0;
-		pcount++;
 	}
+	else
+		prescaler = 0;
+
 	oldPRR = PRR;
 
 
