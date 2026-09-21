@@ -30,5 +30,6 @@ SOURCES_CXX := \
 	       $(CORE_DIR)/rom.cpp \
 	       $(CORE_DIR)/t0.cpp \
 	       $(CORE_DIR)/t1.cpp \
+	       $(CORE_DIR)/serial.cpp \
 	       $(CORE_DIR)/video.cpp \
 	       $(CORE_DIR)/vmu.cpp

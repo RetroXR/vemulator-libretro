@@ -30,6 +30,7 @@
 #include "t1.h"
 #include "basetimer.h"
 #include "interrupts.h"
+#include "serial.h"
 #include "bitwisemath.h"
 
 class VMU
@@ -45,6 +46,7 @@ public:
 	VE_VMS_INTERRUPTS *intHandler;
 	VE_VMS_VIDEO *video;
 	VE_VMS_AUDIO *audio;
+	VE_VMS_SERIAL *serial;
 
     VMU(uint16_t *_frameBuffer);
     
@@ -54,6 +56,11 @@ public:
     int loadBIOS(const char *filePath);
 
     bool hasBIOS();
+
+    /* Connector pins 13 and 6 (P7 bits 2 and 3): how the machine sees that
+       another VMU is clipped on. Software checks this before it touches the
+       serial port. */
+    byte linkConnectorBits;
 
     void halt();
 

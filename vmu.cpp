@@ -43,6 +43,7 @@ VMU::VMU(uint16_t *_frameBuffer)
    t1           = new VE_VMS_TIMER1(ram, intHandler, audio);
    baseTimer    = new VE_VMS_BASETIMER(ram, intHandler, cpu);
    video        = new VE_VMS_VIDEO(ram);
+   serial       = new VE_VMS_SERIAL(ram, intHandler);
    frameBuffer  = _frameBuffer;
 
 
@@ -61,6 +62,7 @@ VMU::VMU(uint16_t *_frameBuffer)
    threadReady  = false;
    inSleepState = false;
    BIOSExists   = false;
+   linkConnectorBits = 0;
    enableSound  = true;
    useT1ELD     = false; //Some mini-game programmers (Especially homebrew creators) don't use it
    cycles_left  = 0;
@@ -72,6 +74,7 @@ VMU::~VMU()
    delete t1;
    delete baseTimer;
    delete audio;
+   delete serial;
    delete video;
    delete flash;
    delete cpu;
@@ -309,7 +312,11 @@ void VMU::runCycle()
 	 * is flat, which gets a "change battery" screen. Standalone with a good
 	 * battery is bit0 clear, bit1 set. */
 	ram->writeByte_RAW(0x31, 0xFF);
-	ram->writeByte_RAW(P7, 2);
+
+	/* Bits 2 and 3 are the states of connector pins 13 and 6, which is how a
+	   VMU notices another one has been clipped onto it. Software looks here
+	   before it touches the serial port at all. */
+	ram->writeByte_RAW(P7, (byte)(0x02 | linkConnectorBits));
 
 	byte PCON_data = ram->readByte_RAW(PCON);
 
@@ -342,6 +349,8 @@ void VMU::runCycle()
 
 
 	//Run timers (t0 and t1)
+	serial->runCycle();
+
 	t0->runTimer();
 	t1->runTimer();
 	baseTimer->runTimer();
@@ -368,6 +377,7 @@ void VMU::reset()
    delete t1;
    delete baseTimer;
    delete audio;
+   delete serial;
    delete video;
    delete flash;
    delete cpu;
@@ -390,6 +400,7 @@ void VMU::reset()
    baseTimer    = new VE_VMS_BASETIMER(ram, intHandler, cpu);
 
    video        = new VE_VMS_VIDEO(ram);
+   serial       = new VE_VMS_SERIAL(ram, intHandler);
 
    //Re-nitialize variables
    ccount       = 0;  //Cycle count
@@ -406,6 +417,7 @@ void VMU::reset()
    threadReady  = false;
    inSleepState = false;
    BIOSExists   = false;
+   linkConnectorBits = 0;
    enableSound  = true;
    useT1ELD     = false; //Some mini-game programmers (Especially homebrew creators) don't use it
    cycles_left  = 0;

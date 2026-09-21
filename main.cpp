@@ -24,6 +24,7 @@
 #include <time/rtime.h>
 
 #include <libretro.h>
+#include "libretro_link.h"
 #include "vmu.h"
 
 #ifdef _WIN32
@@ -51,9 +52,10 @@ static void fallback_log(enum retro_log_level level, const char *fmt, ...) { }
 
 static retro_log_printf_t log_cb = fallback_log;
 
-struct retro_variable options[4] = {
+struct retro_variable options[5] = {
    {"enable_flash_write", "Enable flash write (.bin, requires restart); enabled|disabled"},
    {"bios", "BIOS (requires restart); auto|american|japanese|disabled"},
+   {"serial_link", "Serial link to another VMU; enabled|disabled"},
    {"icon_row", "Icon row (requires restart); enabled|disabled"},
    { NULL, NULL }
 };
@@ -75,6 +77,32 @@ static int romType;
 static bool flashWrite;
 static char romPath[4096];
 static char biosPath[4096];
+
+/* The cable to another VMU, hosted by the frontend. A frontend that does not
+   offer one leaves link_port NULL and the core runs exactly as it always has:
+   a VMU with nothing in its socket. */
+static struct retro_link_interface link_iface;
+static retro_link_port_t          *link_port;
+static uint64_t                    link_tick;
+static uint64_t                    link_safe;
+
+/* What this core calls a tick. The VMU's RC oscillator divided by 12, which is
+   what OCR selects out of reset and the rate retro_run counts cycles at. A
+   guest that reprograms OCR changes the real rate and this declared one does
+   not follow it -- harmless while both ends of a cable are VMUs booted the
+   same way, since the frontend only uses it to convert between peers' units. */
+#define LINK_CLOCK_RATE 50000
+
+/* How far ahead of itself this core promises not to originate a transfer.
+   Traded against fidelity: larger means fewer rendezvous and more emulated
+   delay before a byte lands. An eighth of a frame is a couple of milliseconds
+   of emulated time, far below the millisecond-scale gaps between bytes the
+   BIOS leaves. */
+#define LINK_HORIZON (LINK_CLOCK_RATE / FPS / 8)
+
+/* Peers whose protocol_id differs are never cabled to each other, which is
+   what keeps this core off other machines' cables. */
+#define LINK_PROTOCOL_ID "vmu-sio"
 
 /* Known dump names for the two VMU BIOS revisions, plus the plain names a
    user is likely to give them. The first one present in the system
@@ -169,6 +197,191 @@ static bool loadBIOS(void)
          "[VeMUlator] no BIOS in %s, booting with HLE\n", system_dir);
 
    return false;
+}
+
+/* Join the frontend's link bus, if it has one and the user wants it.
+ *
+ * The experimental number is probed first and the final one second, so a core
+ * built today keeps working against a frontend that later adopts the
+ * unflagged 94. */
+static void linkAttach(void)
+{
+   struct retro_variable var = {0};
+
+   link_port = NULL;
+   link_tick = 0;
+   link_safe = 0;
+
+   var.key = "serial_link";
+   if(environment_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var)
+         && var.value && !strcmp(var.value, "disabled"))
+      return;
+
+   memset(&link_iface, 0, sizeof(link_iface));
+
+   if(!environment_cb(RETRO_ENVIRONMENT_GET_LINK_INTERFACE, &link_iface)
+         && !environment_cb(RETRO_ENVIRONMENT_GET_LINK_INTERFACE_FINAL, &link_iface))
+   {
+      log_cb(RETRO_LOG_INFO,
+            "[VeMUlator] frontend hosts no link bus, serial port left empty\n");
+      return;
+   }
+
+   link_port = link_iface.attach(0, LINK_PROTOCOL_ID, LINK_CLOCK_RATE);
+
+   if(!link_port)
+   {
+      log_cb(RETRO_LOG_WARN, "[VeMUlator] could not attach to the link bus\n");
+      return;
+   }
+
+   log_cb(RETRO_LOG_INFO, "[VeMUlator] attached to the link bus as \"%s\"\n",
+         LINK_PROTOCOL_ID);
+}
+
+static void linkDetach(void)
+{
+   if(!link_port)
+      return;
+
+   link_iface.detach(link_port);
+   link_port = NULL;
+}
+
+/* Hand the bus anything the VMU clocked out since the last look. Stamped at
+   the published horizon rather than the cycle the eighth edge fell on, which
+   is what makes the promise in safe_tick true, at the cost of up to a horizon
+   of emulated delay on a byte. */
+static void linkPumpOutgoing(void)
+{
+   int  iface;
+   byte value;
+
+   while(vmu->serial->takeOutgoing(&iface, &value))
+   {
+      byte payload[2];
+
+      /* The cable crosses. Two VMUs clip together face to face, so one unit's
+         connector is the mirror of the other's and SIO0 lands on the peer's
+         SIO1. Both sides drive SO0/SCK0 and listen on SIO1, which only works
+         because of that crossing -- wire it straight and both ends are
+         talking into each other's outputs. */
+      payload[0] = (byte)(iface ^ 1);
+      payload[1] = value;
+
+      /* One horizon ahead of where this core stands, which is exactly what it
+         will publish as safe_tick on the next rendezvous. A peer cannot have
+         run past it, so the byte is never delivered into its past. */
+      link_iface.send(link_port, link_tick + LINK_HORIZON,
+            RETRO_LINK_BROADCAST, payload, sizeof(payload));
+   }
+}
+
+/* Take everything waiting for us. A bit-accurate model would hold each byte
+   until the clock reached the tick it carries; this one delivers on arrival,
+   which can be slightly early but is never late. */
+static void linkDrainIncoming(void)
+{
+   uint64_t tick;
+   unsigned from;
+   byte     payload[8];
+   size_t   len = sizeof(payload);
+
+   while(link_iface.recv(link_port, &tick, &from, payload, &len))
+   {
+      if(len >= 2)
+         vmu->serial->deliver((int)payload[0], payload[1]);
+
+      len = sizeof(payload);
+   }
+}
+
+/* Run one frame's worth of cycles, rendezvousing with the peer as often as the
+   bus makes us. Falls back to a straight run when nothing is cabled. */
+static void linkRunFrame(unsigned cyclesPassed)
+{
+   uint64_t target = link_tick + cyclesPassed;
+   unsigned peers  = 0;
+   int      stalls = 0;
+
+   if(link_iface.peers(link_port, &peers) < 0 || peers < 2)
+   {
+      /* Nothing on the other end. Still advance the tick so a peer that
+         arrives later does not find us in the distant past. */
+      unsigned i;
+
+      vmu->serial->setCabled(false);
+      vmu->linkConnectorBits = 0;
+
+      for(i = 0; i < cyclesPassed; i++)
+         vmu->runCycle();
+
+      link_tick = target;
+      link_safe = target;
+      return;
+   }
+
+   vmu->serial->setCabled(true);
+
+   /* Connector pin 6, which is how software notices a peer is there at all,
+      and what it checks before going near the serial port. */
+   vmu->linkConnectorBits = 0x08;
+
+   while(link_tick < target)
+   {
+      uint32_t wake  = RETRO_LINK_WAKE_NONE;
+      uint64_t step  = link_tick + LINK_HORIZON;
+      uint64_t grant;
+
+      /* One horizon, never the whole frame. advance() blocks until the whole
+         request can be granted and a peer only promises a horizon past where
+         it stands, so two cores that each asked for a frame would deadlock,
+         each waiting for the other to promise a frame it cannot promise
+         without first running. A horizon at a time makes them leapfrog. */
+      if(step > target)
+         step = target;
+
+      linkDrainIncoming();
+
+      link_safe = step;
+      grant     = link_iface.advance(link_port, link_tick, link_safe,
+            step, &wake);
+
+      if(grant == RETRO_LINK_UNBOUNDED || grant > step)
+         grant = step;
+
+      if(grant <= link_tick)
+      {
+         /* No ground given. That is normal when a peer woke us to hand over a
+            message, and the next pass will pick it up -- but a frontend that
+            keeps saying no must not wedge the emulation thread. */
+         if(wake & RETRO_LINK_WAKE_DETACHED)
+            break;
+
+         if(wake == RETRO_LINK_WAKE_NONE && ++stalls > 64)
+            break;
+
+         continue;
+      }
+
+      stalls = 0;
+
+      while(link_tick < grant)
+      {
+         vmu->runCycle();
+         link_tick++;
+      }
+
+      linkPumpOutgoing();
+   }
+
+   /* A grant may have fallen short of the frame. Let the machine finish it
+      anyway so video and audio keep their cadence; the tick stays honest. */
+   while(link_tick < target)
+   {
+      vmu->runCycle();
+      link_tick++;
+   }
 }
 
 RETRO_API void retro_set_environment(retro_environment_t env)
@@ -405,8 +618,44 @@ RETRO_API void retro_run(void)
 	//Cycles passed since last screen refresh
 	cyclesPassed = vmu->cpu->getCurrentFrequency() / FPS;
 	
-	for(i = 0; i < cyclesPassed; i++)
-		vmu->runCycle();
+#ifdef VMU_LINK_SELFTEST
+	/* Compiled out of every normal build. Stands in for guest code that drives
+	   the serial port, so the link transport can be exercised end to end
+	   without a mini-game that does it. */
+	{
+		static unsigned selftestFrame;
+
+		/* CTRL has to be seen going 0 -> 1 by a cycle-sampling model, so the
+		   clear and the set are put in different frames. Guest code gets this
+		   for free: instructions take cycles. */
+		switch(++selftestFrame % 40)
+		{
+			case 0:   /* clock a byte out */
+				vmu->ram->writeByte_RAW(P1DDR, 0x05);
+				vmu->ram->writeByte_RAW(P1FCR, 0x05);
+				vmu->ram->writeByte_RAW(SBR,   0xF0);
+				vmu->ram->writeByte_RAW(SBUF0, (byte)(selftestFrame / 40));
+				vmu->ram->writeByte_RAW(SCON0, 0x08);
+				break;
+			case 10:  /* back to idle */
+				vmu->ram->writeByte_RAW(SCON0, 0x00);
+				break;
+			case 20:  /* listen for one */
+				vmu->ram->writeByte_RAW(P1DDR, 0x00);
+				vmu->ram->writeByte_RAW(SCON0, 0x08);
+				break;
+			case 35:
+				vmu->ram->writeByte_RAW(SCON0, 0x00);
+				break;
+		}
+	}
+#endif
+
+	if(link_port)
+		linkRunFrame(cyclesPassed);
+	else
+		for(i = 0; i < cyclesPassed; i++)
+			vmu->runCycle();
 
 	//Video
 	vmu->video->drawFrame(frameBuffer);
@@ -487,6 +736,9 @@ RETRO_API bool retro_load_game(const struct retro_game_info *game)
    //Loading BIOS from the system directory, if the user provided one
    loadBIOS();
 
+   //Joining the link bus, if the frontend hosts one
+   linkAttach();
+
    //Initializing system
    vmu->startCPU();
 
@@ -500,6 +752,7 @@ RETRO_API bool retro_load_game_special(unsigned game_type, const struct retro_ga
 
 RETRO_API void retro_unload_game(void)
 {
+	linkDetach();
 	vmu->reset();
 }
 
