@@ -107,9 +107,7 @@ void VE_VMS_TIMER0::runTimer()
 
 		if (TCNT_data & 4) intHandler->setT0HOV();
 
-		//Stop timer
-		TCNT_data &= 0x7F;	//Not forcefully stopping it causes a hang in Chao Adventure 1 when navigating through the menu
-
+		/* T0H reloads and keeps running; an overflow does not stop it. */
 		//Reload contents
 		TRH_data = ram->readByte_RAW(T0HR);
 	}
