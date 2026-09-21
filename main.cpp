@@ -51,11 +51,21 @@ static void fallback_log(enum retro_log_level level, const char *fmt, ...) { }
 
 static retro_log_printf_t log_cb = fallback_log;
 
-struct retro_variable options[3] = {
+struct retro_variable options[4] = {
    {"enable_flash_write", "Enable flash write (.bin, requires restart); enabled|disabled"},
    {"bios", "BIOS (requires restart); auto|american|japanese|disabled"},
+   {"icon_row", "Icon row (requires restart); enabled|disabled"},
    { NULL, NULL }
 };
+
+/* Drawing the icon strip makes the frame taller than 48x32, so this is read
+   once, when the geometry is settled, and not changed under the frontend. */
+static bool iconRow = true;
+
+static unsigned screenHeight(void)
+{
+   return iconRow ? SCREEN_HEIGHT_ICONS : SCREEN_HEIGHT;
+}
 
 static VMU *vmu;
 static uint16_t *frameBuffer;
@@ -219,7 +229,8 @@ RETRO_API void retro_init(void)
 	/* rtime_localtime, which VMU::setDate uses, needs this. */
 	rtime_init();
 
-	frameBuffer = (uint16_t*)calloc(SCREEN_WIDTH*SCREEN_HEIGHT, sizeof(uint16_t));
+	frameBuffer = (uint16_t*)calloc(SCREEN_WIDTH*SCREEN_HEIGHT_ICONS,
+	                                sizeof(uint16_t));
 	vmu         = new VMU(frameBuffer);
 }
 
@@ -252,10 +263,17 @@ RETRO_API void retro_get_system_info(struct retro_system_info *info)
 
 RETRO_API void retro_get_system_av_info(struct retro_system_av_info *info)
 {
+	{
+	   struct retro_variable var = {0};
+	   var.key = "icon_row";
+	   if(environment_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+	      iconRow = strcmp(var.value, "disabled") != 0;
+	}
+
 	info->geometry.base_width   = SCREEN_WIDTH;
-	info->geometry.base_height  = SCREEN_HEIGHT;
+	info->geometry.base_height  = screenHeight();
 	info->geometry.max_width    = SCREEN_WIDTH;
-	info->geometry.max_height   = SCREEN_HEIGHT;
+	info->geometry.max_height   = SCREEN_HEIGHT_ICONS;
 	info->geometry.aspect_ratio = 0;
 	
 	info->timing.fps            = FPS;
@@ -392,8 +410,10 @@ RETRO_API void retro_run(void)
 
 	//Video
 	vmu->video->drawFrame(frameBuffer);
+	if(iconRow)
+		vmu->video->drawIcons(frameBuffer);
 	if(vmu->ram->readByte_RAW(MCR) & 8)
-      video_cb(frameBuffer, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH * 2);
+      video_cb(frameBuffer, SCREEN_WIDTH, screenHeight(), SCREEN_WIDTH * 2);
 	
 	//Audio
 	vmu->audio->generateSignal(audio_cb);

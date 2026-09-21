@@ -18,6 +18,85 @@
 
 #include "video.h"
 
+/* The four segments along the bottom of a VMU screen: file, game, clock and
+   the flash-write warning. They are etched into the glass rather than drawn
+   on a grid, so each is a single shape that is either lit or not, and they
+   are drawn here at the size they are shown -- one bit a pixel, 12 wide and
+   ICON_ROWS tall, most significant bit leftmost.
+ *
+ * Shrinking a detailed drawing of one down to this size does not work: the
+ * artwork the original carried is 24x32 with one pixel lines, and halving it
+ * turns those into mush. The four also sat at different places in that grid,
+ * so a single crop caught the middle of the write icon and rendered it as a
+ * solid block. */
+static const byte FILE_ICON[ICON_ROWS * 2] =
+{
+   0x00, 0x00,
+   0x03, 0xFC,
+   0x02, 0x04,
+   0x02, 0xF4,
+   0x02, 0x04,
+   0x02, 0xF4,
+   0x02, 0x04,
+   0x02, 0xF4,
+   0x02, 0x04,
+   0x02, 0x04,
+   0x03, 0xFC,
+   0x00, 0x00
+};
+
+static const byte GAME_ICON[ICON_ROWS * 2] =
+{
+   0x00, 0x00,
+   0x00, 0x60,
+   0x00, 0xF0,
+   0x01, 0xF8,
+   0x03, 0xFC,
+   0x07, 0xFE,
+   0x07, 0xFE,
+   0x07, 0xFE,
+   0x03, 0x8E,
+   0x00, 0x60,
+   0x00, 0xF0,
+   0x00, 0x00
+};
+
+static const byte CLOCK_ICON[ICON_ROWS * 2] =
+{
+   0x00, 0x00,
+   0x00, 0xF0,
+   0x03, 0x0C,
+   0x04, 0x42,
+   0x04, 0x42,
+   0x04, 0x42,
+   0x04, 0x7A,
+   0x04, 0x02,
+   0x03, 0x0C,
+   0x00, 0xF0,
+   0x00, 0x00,
+   0x00, 0x00
+};
+
+static const byte WRITE_ICON[ICON_ROWS * 2] =
+{
+   0x00, 0x00,
+   0x07, 0xFE,
+   0x07, 0x9E,
+   0x07, 0x9E,
+   0x07, 0x9E,
+   0x07, 0x9E,
+   0x07, 0x9E,
+   0x07, 0xFE,
+   0x07, 0x9E,
+   0x07, 0xFE,
+   0x07, 0xFE,
+   0x00, 0x00
+};
+
+static const byte *const ICONS[4] =
+   { FILE_ICON, GAME_ICON, CLOCK_ICON, WRITE_ICON };
+
+
 VE_VMS_VIDEO::VE_VMS_VIDEO(VE_VMS_RAM *_ram)
 {
 	ram = _ram;
@@ -62,29 +141,36 @@ void VE_VMS_VIDEO::drawFrame(uint16_t *buffer)
       }
    }
 
-   //Draw pixels for bank 2 (BIOS Icons)
-   /*
-    *	BIOS Icons not needed when HLE is used
-    * 
-    scaleX /= 2;    //Since icons are more pixel dense
-    scaleY /= 2;
-    scaleXM8 = 8*scaleX;
-    float scaleXM24 = 24*scaleX;
-    float scaleYM66 = 66*scaleY;
-
-    for(int i = 0; i < 4; i++) {
-    if(ram->readByteXRAM(0x181 + i, 2) == 0x00) continue; //Only draw icons shown in XRAM bank 2
-
-    int []icon = ICONS[i];
-    for (int y = 0; y < 32; y++) {
-    int []pixelLine = new int[3];
-
-    System.arraycopy(icon, y * 3, pixelLine, 0, 3);
-
-    for (int x = 0; x < 3; x++)
-    for (int j = 0; j < 8; j++)
-    screenCanvas.drawRect(marginX + ((x * scaleXM8) + (j * scaleX)) + (i * scaleXM24), marginY + (scaleYM66 + (y * scaleY)), marginX + ((x * scaleXM8) + (j * scaleX)) + scaleX + (i * scaleXM24), marginY + (scaleYM66 + (y * scaleY)) + scaleY, ((pixelLine[x] & (0x80 >> j)) != 0)?pixelColor:noPixelColor);
-    }
-    }*/
 }
 
+/* Called separately from drawFrame, not by it: this writes past the 48x32
+   picture, so only a caller that asked for the taller frame should call it.
+ *
+ * XRAM bank 2 holds one byte per segment at 0x181, set by the BIOS. Nothing
+ * writes that bank under high level emulation, so the strip stays blank. */
+void VE_VMS_VIDEO::drawIcons(uint16_t *buffer)
+{
+   int i, ox, oy;
+   uint16_t *strip = buffer + (SCREEN_WIDTH * SCREEN_HEIGHT);
+
+   for(i = 0; i < SCREEN_WIDTH * ICON_ROWS; i++)
+      strip[i] = 0xFFFF;
+
+   for(i = 0; i < ICON_COUNT; i++)
+   {
+      const byte *icon = ICONS[i];
+      int left = i * ICON_WIDTH;
+
+      if(ram->readByteXRAM(0x181 + i, 2) == 0x00)
+         continue;
+
+      for(oy = 0; oy < ICON_ROWS; oy++)
+      {
+         unsigned bits = (icon[oy * 2] << 8) | icon[oy * 2 + 1];
+
+         for(ox = 0; ox < ICON_WIDTH; ox++)
+            if(bits & (0x800 >> ox))
+               strip[oy * SCREEN_WIDTH + left + ox] = 0;
+      }
+   }
+}

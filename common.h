@@ -27,6 +27,15 @@
 #define SCREEN_WIDTH 48
 #define SCREEN_HEIGHT 32
 
+/* A real VMU has four icons in a strip under the dot matrix -- a file, a
+   spade for game mode, a clock, and the flash-write marker. They are
+   separate LCD segments driven from XRAM bank 2, not part of the 48x32
+   picture, so showing them makes the frame taller. */
+#define ICON_ROWS 12
+#define ICON_COUNT 4
+#define ICON_WIDTH (SCREEN_WIDTH / ICON_COUNT)
+#define SCREEN_HEIGHT_ICONS (SCREEN_HEIGHT + ICON_ROWS)
+
 typedef unsigned char byte;
 
 #endif // _COMMON_H_
