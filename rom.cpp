@@ -20,7 +20,7 @@
 
 VE_VMS_ROM::VE_VMS_ROM()
 {
-	data = new size_t[0x100000];
+	data = new size_t[0x100000]();
 }
 
 VE_VMS_ROM::~VE_VMS_ROM()

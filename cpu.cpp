@@ -600,6 +600,16 @@ void VE_VMS_CPU::processInterrupts()
 }
 
 
+size_t VE_VMS_CPU::getPC() const
+{
+	return PC;
+}
+
+void VE_VMS_CPU::setHLE(bool hle)
+{
+	IsHLE = hle;
+}
+
 //System call emulation
 void VE_VMS_CPU::performHLE(size_t entryAddress)
 {
@@ -624,7 +634,9 @@ void VE_VMS_CPU::performHLE(size_t entryAddress)
 		byte flashBank = ram->readByte(0x7D);
 		if(flashBank == 1) startAddress += 0x10000;
 
-		for(size_t i = 0; i < 128; ++i, startAddress++)
+		/* Flash is 0x20000 bytes and startAddress can already be 0x1FFFF, so a
+		   blind run of 128 walks off the end of the buffer. */
+		for(size_t i = 0; i < 128 && startAddress < 0x20000; ++i, startAddress++)
 		{
 			flash->writeByte_RAW(startAddress, ram->readByte(0x80 + i));
 		}
@@ -645,7 +657,7 @@ void VE_VMS_CPU::performHLE(size_t entryAddress)
 		byte flashBank = ram->readByte(0x7D);
 		if(flashBank == 1) startAddress += 0x10000;
 
-		for(size_t i = 0; i < 128; ++i, startAddress++)
+		for(size_t i = 0; i < 128 && startAddress < 0x20000; ++i, startAddress++)
 		{
 			if(flash->getByte(startAddress) != ram->readByte(0x80 + i))
 			{
@@ -670,7 +682,7 @@ void VE_VMS_CPU::performHLE(size_t entryAddress)
 		byte flashBank = ram->readByte(0x7D);
 		if(flashBank == 1) startAddress += 0x10000;
 
-		for(size_t i = 0; i < 128; ++i, startAddress++)
+		for(size_t i = 0; i < 128 && startAddress < 0x20000; ++i, startAddress++)
 		{
 			ram->writeByte(0x80 + i, flash->getByte(startAddress));
 		}

@@ -24,6 +24,7 @@ VE_VMS_BASETIMER::VE_VMS_BASETIMER(VE_VMS_RAM *_ram, VE_VMS_INTERRUPTS *_intHand
 	intHandler = _intHandler;
 	cpu = _cpu;
 	BTR = 0;
+	frac = 0.0;
 }
 
 VE_VMS_BASETIMER::~VE_VMS_BASETIMER()
@@ -57,32 +58,46 @@ void VE_VMS_BASETIMER::runTimer()
 			int1cycle = 2048;
 	}
 
-	if(BTStarted)
-	{
-		BTR += 32786.0 / cpu->getCurrentFrequency();
+	/* Interrupt 0 fires on overflow of the whole 14-bit counter, twice a
+	   second, unless BTCR.7 shortens it to every 64 counts. */
+	int int0cycle = ((BTCR_data & 128) != 0) ? 64 : 16384;
 
-		//Throw interrupt 1 source when cycle chosen is reached
-		if(BTR >= int1cycle) 
+	if(!BTStarted)
+	{
+		BTR  = 0;
+		frac = 0.0;
+		return;
+	}
+
+	/* The base timer is clocked by the 32768Hz quartz, not by the CPU, so a
+	   CPU cycle is worth a fraction of a count and the remainder carries. */
+	frac += 32768.0 / cpu->getCurrentFrequency();
+
+	while(frac >= 1.0)
+	{
+		frac -= 1.0;
+		BTR = (BTR + 1) & 0x3FFF;
+
+		/* Both source flags are set once per period, on the count that
+		   completes it, and are cleared by software afterwards. Setting one
+		   for as long as the count is past its period instead leaves it
+		   permanently set as far as a handler that reads it back can tell. */
+		if((BTR % (unsigned)int1cycle) == 0)
 		{
 			BTCR_data |= 8;
 			ram->writeByte_RAW(BTCR, BTCR_data);
 
-			if (Int1Enabled) 
+			if(Int1Enabled)
 				intHandler->setINT3();
-
 		}
 
-
-		if((BTR > 16383) || (BTR > 63 && ((BTCR_data & 128) != 0)))
+		if((BTR % (unsigned)int0cycle) == 0)
 		{
-			//Throw full (14-bit) overflow interrupt (Interrupt 0 source)
 			BTCR_data |= 2;
 			ram->writeByte_RAW(BTCR, BTCR_data);
 
 			if(Int0Enabled)
 				intHandler->setINT3();
-
-			if(BTR > 16383) BTR = 0;
 		}
 	}
 }

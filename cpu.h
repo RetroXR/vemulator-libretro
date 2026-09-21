@@ -127,6 +127,14 @@ public:
 
     void performHLE(size_t entryAddress);
 
+    /* The interpreter only treats an EXT switch as a real jump into ROM when
+       it is not running high level emulation, so a loaded BIOS must turn HLE
+       off. */
+    void setHLE(bool hle);
+
+    /* Where the interpreter currently stands, for diagnostics. */
+    size_t getPC() const;
+
 	//Interpreter
     int processInstruction(bool dbg);
     

@@ -16,6 +16,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 #include <streams/file_stream.h>
+#include <time/rtime.h>
 
 #include "vmu.h"
 
@@ -81,39 +82,51 @@ VMU::~VMU()
 
 int VMU::loadBIOS(const char *filePath)
 {
-   size_t i, fileSize;
+   size_t i, fileSize, readSize;
+   int result = 0;
+   byte *BIOS_Data_Encrypted;
+   byte *BIOS_Data;
    RFILE *bios = rfopen(filePath, "rb");
 
    if(!bios)
       return -1;
 
    rfseek(bios, 0, SEEK_END);
-   fileSize = rftell(bios);
+   fileSize = (size_t)rftell(bios);
    rfseek(bios, 0, SEEK_SET);
 
-   byte *BIOS_Data_Encrypted = new byte[0xF004];
-   byte *BIOS_Data = new byte[0xF000];
-
-   if(fileSize > 0xF004)
+   /* A BIOS dump is either the plain 60KB of ROM, a full 64KB chip dump
+      (the tail past 0xF000 is unmapped padding) or an encrypted image
+      carrying a 4 byte header. Anything shorter than the ROM itself
+      cannot boot. */
+   if(fileSize < 0xF000)
+   {
+      rfclose(bios);
       return -2; //Unknown BIOS image type
+   }
 
-   for(i = 0; i < fileSize; ++i)
+   BIOS_Data_Encrypted = new byte[0xF004];
+   BIOS_Data           = new byte[0xF000];
+
+   readSize = fileSize > 0xF004 ? 0xF004 : fileSize;
+
+   for(i = 0; i < readSize; ++i)
       BIOS_Data_Encrypted[i] = rfgetc(bios);
 
    rfclose(bios);
 
    //Decrypt BIOS file if encrypted (First opcode is not JMPF)
-   if(BIOS_Data_Encrypted[0] != 0x2A) 
+   if(BIOS_Data_Encrypted[0] != 0x2A)
    {
       //Remove first 4 bytes
-      for (i = 0; i < 0xF000; ++i) 
+      for (i = 0; i < 0xF000; ++i)
          BIOS_Data[i] = BIOS_Data_Encrypted[i + 4];
 
       //XOR 0x37
-      for (i = 0; i < 0xF000; ++i) 
+      for (i = 0; i < 0xF000; ++i)
          BIOS_Data[i] = (byte) ((BIOS_Data[i] ^ 0x37) & 0xFF);
-   } 
-   else 
+   }
+   else
    {
       //BIOS is not encrypted
       for(i = 0; i < 0xF000; ++i)
@@ -122,18 +135,28 @@ int VMU::loadBIOS(const char *filePath)
 
    //Check BIOS one last time (After decrypting)
    if(BIOS_Data[0] != 0x2A)
-      return -1;
+      result = -2;
+   else
+   {
+      BIOSExists = true;
 
-   BIOSExists = true;
+      //Real BIOS code runs instead of the emulated system calls
+      cpu->setHLE(false);
 
-   //This is loaded in (64KB) of ROM
-   for(i = 0; i < 0xF000; ++i)
-      rom->writeByte(i, BIOS_Data[i]);
+      //This is loaded in (60KB) of ROM
+      for(i = 0; i < 0xF000; ++i)
+         rom->writeByte(i, BIOS_Data[i]);
+   }
 
    delete []BIOS_Data;
    delete []BIOS_Data_Encrypted;
 
-   return 0;
+   return result;
+}
+
+bool VMU::hasBIOS()
+{
+   return BIOSExists;
 }
 
 void VMU::halt()
@@ -143,40 +166,61 @@ void VMU::halt()
 
 void VMU::setDate()
 {
-	//Set time and date
-	time_t rawTime;
-	time(&rawTime);
-	
-	struct tm *currentTime = localtime(&rawTime);
-	
-	byte day   = currentTime->tm_mday & 0xFF;
-	byte month = currentTime->tm_mon & 0xFF;
-	byte year  = (currentTime->tm_year + 1900) & 0xFF;
-	byte yearH = (year & 0xFF00) >> 8;
-	byte yearL = year & 0xFF;
-	byte hour  = currentTime->tm_hour & 0xFF;
-	byte min   = currentTime->tm_min & 0xFF;
-	byte sec   = currentTime->tm_sec & 0xFF;
+	/* Set time and date. Through rtime_localtime rather than localtime, which
+	   hands back a pointer to one static struct shared by the whole process
+	   and can return NULL: this runs on the emulation thread while the
+	   frontend is free to be formatting timestamps of its own. */
+	time_t    rawTime;
+	struct tm timeBuf;
+	struct tm *currentTime;
 
-	//BCD time
-	ram->writeByte_RAW(0x10, int2BCD(year) & 0xFF);
-	ram->writeByte_RAW(0x11, (int2BCD(year) & 0xFF00) >> 8);
+	time(&rawTime);
+
+	currentTime = rtime_localtime(&rawTime, &timeBuf);
+
+	if(!currentTime)
+		return;
+
+	/* The BIOS keeps the clock in two forms at once, and its own half-second
+	   handler increments the binary set. Seeding both is all this has to do;
+	   the BIOS counts from here.
+	 *
+	 *   0x10-0x16  century, year-in-century, month, day, hour, min, sec, BCD
+	 *              (the copies the set-clock UI and Maple show)
+	 *   0x17-0x18  full year, binary, high byte first
+	 *   0x19-0x1D  month, day, hour, min, sec, binary
+	 *   0x1E       half-second toggle, 0x1F leap year
+	 */
+	int  fullYear = currentTime->tm_year + 1900;
+	byte day      = currentTime->tm_mday & 0xFF;
+	byte month    = (currentTime->tm_mon + 1) & 0xFF;   //tm_mon counts from 0
+	byte century  = (byte)(fullYear / 100);
+	byte yearIn   = (byte)(fullYear % 100);
+	byte hour     = currentTime->tm_hour & 0xFF;
+	byte min      = currentTime->tm_min & 0xFF;
+	byte sec      = currentTime->tm_sec & 0xFF;
+	bool leap     = (fullYear % 4 == 0)
+	             && (fullYear % 100 != 0 || fullYear % 400 == 0);
+
+	//BCD copies
+	ram->writeByte_RAW(0x10, int2BCD(century));
+	ram->writeByte_RAW(0x11, int2BCD(yearIn));
 	ram->writeByte_RAW(0x12, int2BCD(month));
 	ram->writeByte_RAW(0x13, int2BCD(day));
 	ram->writeByte_RAW(0x14, int2BCD(hour));
 	ram->writeByte_RAW(0x15, int2BCD(min));
 	ram->writeByte_RAW(0x16, int2BCD(sec));
 
-	ram->writeByte_RAW(0x17, yearH);
-	ram->writeByte_RAW(0x18, yearL);
+	//Binary copies, which are the ones the BIOS counts
+	ram->writeByte_RAW(0x17, (byte)((fullYear >> 8) & 0xFF));
+	ram->writeByte_RAW(0x18, (byte)(fullYear & 0xFF));
 	ram->writeByte_RAW(0x19, month);
 	ram->writeByte_RAW(0x1A, day);
 	ram->writeByte_RAW(0x1B, hour);
 	ram->writeByte_RAW(0x1C, min);
 	ram->writeByte_RAW(0x1D, sec);
-
-	ram->writeByte_RAW(0x50, yearH / 4);
-	ram->writeByte_RAW(0x51, yearL / 4);
+	ram->writeByte_RAW(0x1E, 0);
+	ram->writeByte_RAW(0x1F, leap ? 1 : 0);
 }
 
 //Sets system variables in RAM
@@ -256,7 +300,14 @@ void VMU::runCycle()
 		audio->setT1C(ram->T1LC_Temp);
 	}
 
-	//Battery not low
+	/* 0x31 is the BIOS's "the clock has been set" flag. Holding it means the
+	   BIOS takes the host time seeded in setDate() instead of stopping at its
+	   own set-the-clock screen.
+	 *
+	 * P7 is the external connector: bit0 high means plugged into a controller,
+	 * which sends the BIOS into Dreamcast mode, and bit1 low means the battery
+	 * is flat, which gets a "change battery" screen. Standalone with a good
+	 * battery is bit0 clear, bit1 set. */
 	ram->writeByte_RAW(0x31, 0xFF);
 	ram->writeByte_RAW(P7, 2);
 
@@ -295,10 +346,18 @@ void VMU::runCycle()
 	t1->runTimer();
 	baseTimer->runTimer();
 
-	//Set VMU date (I just randomly put it at 10000, that is, till the BIOS has fully initialized memory, so it wont manipulate date value)
-	if (ccount == 10000 && BIOSExists) 
-		setDate();
-	else ccount++;
+	/* Hand the BIOS the host clock once, after it has finished zeroing its own
+	   system variables, and then leave it alone: from here the BIOS counts the
+	   half-second base timer interrupts itself. The clearing is measured to be
+	   done by cycle 20000, so this leaves a wide margin and still lands within
+	   a few seconds of emulated time. */
+	if (ccount <= 60000)
+	{
+		if (ccount == 60000 && BIOSExists)
+			setDate();
+
+		ccount++;
+	}
 
 	cycle_count++;
 }

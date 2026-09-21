@@ -53,6 +53,8 @@ public:
 
     int loadBIOS(const char *filePath);
 
+    bool hasBIOS();
+
     void halt();
 
     void setDate();

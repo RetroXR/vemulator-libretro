@@ -23,8 +23,8 @@ VE_VMS_RAM::VE_VMS_RAM()
    T1LC_Temp = 0;
    T1HC_Temp = 0;
 
-   data      = new byte[1024];
-   wram      = new byte[512];
+   data      = new byte[1024]();
+   wram      = new byte[512]();
    // A bank holds 0x7C bytes, but every access adds STAD (0-255) to the
    // index, which reaches up to 0xFF past the end of the bank.
    xram0     = new byte[0x7C + 0x100]();

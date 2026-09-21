@@ -16,10 +16,21 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include <streams/file_stream.h>
+#include <time/rtime.h>
 
 #include <libretro.h>
 #include "vmu.h"
+
+#ifdef _WIN32
+#define RETRO_PATH_SEPARATOR '\\'
+#else
+#define RETRO_PATH_SEPARATOR '/'
+#endif
 
 /* Forward declarations */
 extern "C" {
@@ -36,15 +47,119 @@ retro_audio_sample_t audio_cb;
 retro_audio_sample_batch_t audio_batch_cb;
 retro_input_poll_t input_poll_cb;
 retro_input_state_t input_state_cb;
+static void fallback_log(enum retro_log_level level, const char *fmt, ...) { }
 
-struct retro_variable options[2] = {
+static retro_log_printf_t log_cb = fallback_log;
+
+struct retro_variable options[3] = {
    {"enable_flash_write", "Enable flash write (.bin, requires restart); enabled|disabled"},
+   {"bios", "BIOS (requires restart); auto|american|japanese|disabled"},
    { NULL, NULL }
 };
 
 static VMU *vmu;
 static uint16_t *frameBuffer;
 static byte *romData;
+static size_t romSize;
+static int romType;
+static bool flashWrite;
+static char romPath[4096];
+static char biosPath[4096];
+
+/* Known dump names for the two VMU BIOS revisions, plus the plain names a
+   user is likely to give them. The first one present in the system
+   directory wins. */
+static const char *bios_names_american[] = {
+   "en1005-19991026-315-6208-05.bin",
+   "vmu_bios_en.bin",
+   "vmu_bios.bin",
+   NULL
+};
+
+static const char *bios_names_japanese[] = {
+   "jp1004-19980930-315-6208-01.bin",
+   "vmu_bios_jp.bin",
+   "vmu_bios.bin",
+   NULL
+};
+
+/* Fills biosPath with the first BIOS the frontend's system directory holds,
+   and hands it to the VMU. Returns false when the core should fall back to
+   its HLE boot. */
+static bool loadBIOS(void)
+{
+   const char *system_dir = NULL;
+   const char **lists[2];
+   unsigned l, i;
+   struct retro_variable var = {0};
+
+   biosPath[0] = '\0';
+
+   var.key = "bios";
+   if(environment_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if(!strcmp(var.value, "disabled"))
+         return false;
+      if(!strcmp(var.value, "american"))
+      {
+         lists[0] = bios_names_american;
+         lists[1] = NULL;
+      }
+      else if(!strcmp(var.value, "japanese"))
+      {
+         lists[0] = bios_names_japanese;
+         lists[1] = NULL;
+      }
+      else
+      {
+         lists[0] = bios_names_american;
+         lists[1] = bios_names_japanese;
+      }
+   }
+   else
+   {
+      lists[0] = bios_names_american;
+      lists[1] = bios_names_japanese;
+   }
+
+   if(!environment_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &system_dir)
+         || !system_dir)
+   {
+      log_cb(RETRO_LOG_WARN, "[VeMUlator] no system directory, booting with HLE\n");
+      return false;
+   }
+
+   for(l = 0; l < 2; l++)
+   {
+      if(!lists[l])
+         break;
+
+      for(i = 0; lists[l][i]; i++)
+      {
+         char path[4096];
+         snprintf(path, sizeof(path), "%s%c%s",
+               system_dir, RETRO_PATH_SEPARATOR, lists[l][i]);
+
+         int status = vmu->loadBIOS(path);
+
+         log_cb(RETRO_LOG_INFO, "[VeMUlator] BIOS %s: %s\n", path,
+               status == 0 ? "loaded" :
+               status == -1 ? "not found" : "not a usable image");
+
+         if(status == 0)
+         {
+            strncpy(biosPath, path, sizeof(biosPath) - 1);
+            biosPath[sizeof(biosPath) - 1] = '\0';
+            return true;
+         }
+      }
+   }
+
+   log_cb(RETRO_LOG_WARN,
+         "[VeMUlator] no BIOS in %s, booting with HLE\n", system_dir);
+
+   return false;
+}
 
 RETRO_API void retro_set_environment(retro_environment_t env)
 {
@@ -53,6 +168,15 @@ RETRO_API void retro_set_environment(retro_environment_t env)
    environment_cb = env;
 
    env(RETRO_ENVIRONMENT_SET_VARIABLES, options);
+
+   {
+      struct retro_log_callback log;
+      log.log = NULL;
+      if (env(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &log) && log.log)
+         log_cb = log.log;
+      else
+         log_cb = fallback_log;
+   }
 
    /* Take the frontend's VFS when it offers one. Every file this core touches
       already goes through RFILE - the ROM in retro_load_game, the flash save
@@ -92,6 +216,9 @@ RETRO_API void retro_set_input_state(retro_input_state_t istate)
 
 RETRO_API void retro_init(void)
 {
+	/* rtime_localtime, which VMU::setDate uses, needs this. */
+	rtime_init();
+
 	frameBuffer = (uint16_t*)calloc(SCREEN_WIDTH*SCREEN_HEIGHT, sizeof(uint16_t));
 	vmu         = new VMU(frameBuffer);
 }
@@ -105,6 +232,8 @@ RETRO_API void retro_deinit(void)
       free(romData);
    frameBuffer = NULL;
    romData     = NULL;
+
+   rtime_deinit();
 }
 
 RETRO_API unsigned retro_api_version(void)
@@ -201,14 +330,26 @@ void processInput()
    }
    else P3_reg &= 0xDF;
 
-   //Start
-   if(input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START))
+   /* MODE and SLEEP are only meaningful to the BIOS; without one the HLE
+      boot hangs on them, so they stay dead in that case. */
+   if(vmu->hasBIOS())
    {
-      //Clicking MODE without a BIOS causes hang
-      //P3_reg |= 64;
-      //pressFlag++;
+      //Mode
+      if(input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START))
+      {
+         P3_reg |= 64;
+         pressFlag++;
+      }
+      else P3_reg &= 0xBF;
+
+      //Sleep
+      if(input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT))
+      {
+         P3_reg |= 128;
+         pressFlag++;
+      }
+      else P3_reg &= 0x7F;
    }
-   //else P3_reg &= 0xBF;
 
    P3_reg = ~P3_reg;
 
@@ -226,6 +367,15 @@ void processInput()
 RETRO_API void retro_reset(void)
 {
 	vmu->reset();
+
+	/* reset() throws away ROM and flash alike, so put both back. */
+	if(biosPath[0])
+		vmu->loadBIOS(biosPath);
+
+	if(romData)
+		vmu->flash->loadROM(romData, romSize, romType, romPath, flashWrite);
+
+	vmu->startCPU();
 }
 
 RETRO_API void retro_run(void)
@@ -261,7 +411,7 @@ RETRO_API void retro_cheat_set(unsigned index, bool enabled, const char *code)
 
 RETRO_API bool retro_load_game(const struct retro_game_info *game)
 {
-   size_t i, romSize;
+   size_t i;
    //Set environment variables
    enum retro_pixel_format format = RETRO_PIXEL_FORMAT_RGB565;
    environment_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &format);
@@ -297,16 +447,25 @@ RETRO_API bool retro_load_game(const struct retro_game_info *game)
    environment_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var);
 
    //Loading ROM
-   if(!strcmp(ext, ".bin") || !strcmp(ext, ".BIN")) 
+   romType    = 0;
+   flashWrite = false;
+   if(!strcmp(ext, ".bin") || !strcmp(ext, ".BIN"))
    {
       //Check if user wants core to be able to write to flash
-      if(!strcmp(var.value, "enabled")) vmu->flash->loadROM(romData, romSize, 0, game->path, true);
-      else vmu->flash->loadROM(romData, romSize, 0, game->path, false);
+      flashWrite = (var.value && !strcmp(var.value, "enabled"));
    }
-   else if(!strcmp(ext, ".vms") || !strcmp(ext, ".VMS")) vmu->flash->loadROM(romData, romSize, 1, game->path, false);
-   else if(!strcmp(ext, ".dci") || !strcmp(ext, ".DCI")) vmu->flash->loadROM(romData, romSize, 2, game->path, false);
+   else if(!strcmp(ext, ".vms") || !strcmp(ext, ".VMS")) romType = 1;
+   else if(!strcmp(ext, ".dci") || !strcmp(ext, ".DCI")) romType = 2;
+
+   strncpy(romPath, game->path, sizeof(romPath) - 1);
+   romPath[sizeof(romPath) - 1] = 0;
+
+   vmu->flash->loadROM(romData, romSize, romType, romPath, flashWrite);
 
    free(path);
+
+   //Loading BIOS from the system directory, if the user provided one
+   loadBIOS();
 
    //Initializing system
    vmu->startCPU();

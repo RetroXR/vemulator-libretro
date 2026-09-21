@@ -18,6 +18,7 @@
 
 #include "flash.h"
 
+
 /* Forward declarations */
 extern "C" {
    RFILE* rfopen(const char *path, const char *mode);
@@ -28,11 +29,11 @@ extern "C" {
 
 VE_VMS_FLASH::VE_VMS_FLASH(VE_VMS_RAM *_ram)
 {
-	userData      = new byte[0x19000];
-	directory     = new byte[0x1A00];
-	FAT           = new byte[0x200];
-	rootBlock     = new byte[0x200];
-	data          = new byte[0x20000];
+	userData      = new byte[0x19000]();
+	directory     = new byte[0x1A00]();
+	FAT           = new byte[0x200]();
+	rootBlock     = new byte[0x200]();
+	data          = new byte[0x20000]();
 	
 	// The destructor closes this when set; only a writable .bin sets it.
 	flashWriter   = NULL;
@@ -56,7 +57,7 @@ VE_VMS_FLASH::~VE_VMS_FLASH()
 void VE_VMS_FLASH::loadROM(byte *d, size_t buffSize, int romType, const char *fileName, bool enableSave)
 {
    size_t i, i2, j, k, c;
-   byte *romData  = new byte[0x20000];
+   byte *romData  = new byte[0x20000]();
    size_t romSize = buffSize;
 
    if(romType == 2)
@@ -178,6 +179,9 @@ void VE_VMS_FLASH::loadROM(byte *d, size_t buffSize, int romType, const char *fi
 
    IsSaveEnabled = enableSave;
 
+   /* Only a whole flash image can be written back in place. A NULL result is
+      left as it is and checked at every write: the machine still runs, it just
+      does not persist. */
    if(IsSaveEnabled && romType == 0)
       flashWriter = rfopen(fileName, "r+b");
 }
@@ -282,8 +286,15 @@ void VE_VMS_FLASH::writeByte(size_t address, byte d)
 
 	data[address] = d & 0xFF;
 
-	//If playing a flashrom, save changes in real time
-	if(IsRealFlash && IsSaveEnabled) 
+	/* If playing a flashrom, save changes in real time.
+	 *
+	 * flashWriter is NULL whenever the image could not be opened for writing
+	 * -- a read-only file, a read-only directory, a frontend holding it open --
+	 * and rfopen's failure was not being checked here. The guest writes flash
+	 * whenever the BIOS touches the filesystem, so the first such write took
+	 * the whole process down. Losing the save is the right failure; crashing
+	 * is not. */
+	if(IsRealFlash && IsSaveEnabled && flashWriter)
 	{
 		rfseek(flashWriter, address, SEEK_SET);
 		rfputc(d, flashWriter);
@@ -296,7 +307,7 @@ void VE_VMS_FLASH::writeByte_RAW(size_t address, byte d)
 	data[address] = d & 0xFF;
 
 	//If playing a flashrom, save changes in real time
-	if(IsRealFlash && IsSaveEnabled) 
+	if(IsRealFlash && IsSaveEnabled && flashWriter)
 	{
 		rfseek(flashWriter, address, SEEK_SET);
 		rfputc(d, flashWriter);

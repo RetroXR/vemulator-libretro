@@ -32,7 +32,8 @@ public:
     void runTimer();
     
 private:
-	double BTR;    //14-bit
+	unsigned int BTR;   //14-bit counter, clocked at 32768Hz
+	double       frac;  //fraction of a base timer tick carried between cycles
 	VE_VMS_RAM *ram;
 	VE_VMS_INTERRUPTS *intHandler;
 	VE_VMS_CPU *cpu;
