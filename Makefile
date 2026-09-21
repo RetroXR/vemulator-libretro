@@ -190,14 +190,22 @@ else
 	$(LD) $(fpic) $(SHARED) $(LINKOUT)$@ $(OBJECTS) $(LDFLAGS)
 endif
 
+# Track which headers each object was built from, so that editing one rebuilds
+# everything that included it. Without this a change to a class definition
+# leaves objects around that still allocate the old size of it, and the result
+# is heap corruption at run time rather than an error at build time.
+DEPS := $(OBJECTS:.o=.d)
+
 %.o: %.cpp
-	$(CXX) $(INCLUDES) $(CXXFLAGS) $(fpic) -c $(OBJOUT)$@ $<
+	$(CXX) $(INCLUDES) $(CXXFLAGS) $(fpic) -MMD -MP -c $(OBJOUT)$@ $<
 
 %.o: %.c
-	$(CC) $(INCLUDES) $(CFLAGS) $(fpic) -c $(OBJOUT)$@ $<
+	$(CC) $(INCLUDES) $(CFLAGS) $(fpic) -MMD -MP -c $(OBJOUT)$@ $<
+
+-include $(DEPS)
 
 clean:
-	rm -f $(TARGET) $(OBJECTS)
+	rm -f $(TARGET) $(OBJECTS) $(DEPS)
 
 .PHONY: clean
 
