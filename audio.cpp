@@ -16,6 +16,8 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+#include <string.h>
+
 #include "audio.h"
 
 VE_VMS_AUDIO::VE_VMS_AUDIO(VE_VMS_CPU *_cpu, VE_VMS_RAM *_ram)
@@ -23,13 +25,15 @@ VE_VMS_AUDIO::VE_VMS_AUDIO(VE_VMS_CPU *_cpu, VE_VMS_RAM *_ram)
 	T1LR_reg = 0;
 	T1LC_reg = 128;
 	IsEnabled = false;
-	T1LR_old = -1;
-	
+	phase = 0.0;
+	sampleDebt = 0.0;
+
 	ram = _ram;
 	cpu = _cpu;
-	
+
 	sampleArray = (int16_t *)calloc(2*SAMPLE_RATE, sizeof(int16_t));	//Multiplied by 2 because 2 channels
-	
+
+	//Until OCR is written: the 879236Hz main clock over the 6 timer 1 counts in
 	frequency = 146539.3;
 }
 
@@ -38,34 +42,65 @@ VE_VMS_AUDIO::~VE_VMS_AUDIO()
 	free(sampleArray);
 }
 
-void VE_VMS_AUDIO::generateSignal(retro_audio_sample_t &audio_cb)
+/* Centred on zero: a square wave with a DC offset thumps every time the sound
+   starts or stops. The peak to peak is the same either way. */
+#define AUDIO_HIGH  16383
+#define AUDIO_LOW  (-16384)
+
+void VE_VMS_AUDIO::generateSignal(retro_audio_sample_batch_t &audio_batch_cb)
 {
-	if(!IsEnabled) 
+	/* The declared rate over the declared frame rate, fraction carried. */
+	int count;
+	int i;
+
+	sampleDebt += (double)SAMPLE_RATE / (double)FPS;
+	count = (int)sampleDebt;
+	sampleDebt -= count;
+
+	if(count <= 0)
+		return;
+
+	/* The period of the wave in samples, and how much of it the output spends
+	   low. T1LR counts up to 256, so 256 - T1LR is the period in timer ticks;
+	   T1LC is where in that period the output flips. */
+	double period = 0.0;
+	double lowFraction = 0.0;
+
+	if(IsEnabled && T1LR_reg < 256)
 	{
-		audio_cb(0, 0);
+		period = (256.0 - T1LR_reg) * ((double)SAMPLE_RATE / frequency);
+
+		lowFraction = (T1LC_reg - T1LR_reg) / (256.0 - T1LR_reg);
+		if(lowFraction < 0.0) lowFraction = -lowFraction;
+		if(lowFraction > 1.0) lowFraction = 1.0;
+	}
+
+	//Above what this sample rate can carry, so there is no wave to draw
+	if(period < 2.0)
+	{
+		memset(sampleArray, 0, count * 2 * sizeof(int16_t));
+		phase = 0.0;
+		audio_batch_cb(sampleArray, count);
 		return;
 	}
-	
-	double T1LC_reg_D = T1LC_reg;
-	double T1LR_reg_D = T1LR_reg;
 
-	//1 second is equal to 32768 samples
-
-	int16_t waveWidth = (int16_t) ((256 - T1LR_reg_D) * (SAMPLE_RATE / frequency));    //1 Wave (In samples not seconds)
-
-	double lowLevelWidth = abs((((T1LC_reg_D - T1LR_reg_D)/(256 - T1LR_reg_D)) * waveWidth));
-
-	//lowLevelWidth = 0.5 * waveWidth;	//Many mini-games don't care about T1LD, 0.5 would play a sound close to the original.
-
-	for(int i = 0; i < SAMPLE_RATE / FPS; i++)
 	{
-		int16_t amplitude = 0x7FFF;
-		if(waveWidth != 0) 
-			if((i%waveWidth) < lowLevelWidth)
-            amplitude = 0;
-		
-		audio_cb(amplitude, amplitude);
+		double step = 1.0 / period;
+
+		for(i = 0; i < count; i++)
+		{
+			int16_t amplitude = (phase < lowFraction) ? AUDIO_LOW : AUDIO_HIGH;
+
+			sampleArray[i * 2]     = amplitude;
+			sampleArray[i * 2 + 1] = amplitude;
+
+			phase += step;
+			if(phase >= 1.0)
+				phase -= (double)(int)phase;
+		}
 	}
+
+	audio_batch_cb(sampleArray, count);
 }
 
 void VE_VMS_AUDIO::setAudioFrequency(double f)
@@ -85,31 +120,10 @@ void VE_VMS_AUDIO::setT1C(int b)
 
 void VE_VMS_AUDIO::setEnabled(bool e)
 {
+	//So the first cycle of a note is a whole one
+	if(e && !IsEnabled)
+		phase = 0.0;
+
 	IsEnabled = e;
-}
-
-void VE_VMS_AUDIO::runAudioCheck() 
-{
-	if(!IsEnabled) 
-	{
-      size_t i;
-		size_t count = SAMPLE_RATE * 2;
-		
-		//Empty signal (No sound)
-		for(i = 0; i < count; i++)
-			sampleArray[i] = 0;
-			
-		T1LR_old = -1;
-	}
-	else if(T1LR_old != T1LR_reg) 
-		//generateSignal();
-
-	T1LR_old = T1LR_reg;
-
-}
-
-int16_t *VE_VMS_AUDIO::getSignal()
-{
-	return sampleArray;
 }
 

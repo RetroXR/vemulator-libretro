@@ -25,37 +25,41 @@
 #include "cpu.h"
 #include "ram.h"
 
+/* The VMU's sound is one square wave: timer 1's low half free-runs, T1LR sets
+   the period and T1LC the point in it where the output flips, and the pin
+   drives a piezo. There is no volume and no second voice. */
 class VE_VMS_AUDIO
 {
 public:
     VE_VMS_AUDIO(VE_VMS_CPU *_cpu, VE_VMS_RAM *_ram);
-    
+
     ~VE_VMS_AUDIO();
 
-    void generateSignal(retro_audio_sample_t &audio_cb);
-    
+    /* One frame of audio, always: a frame of silence still has to be handed
+       over, or the frontend starves. */
+    void generateSignal(retro_audio_sample_batch_t &audio_batch_cb);
+
     void setAudioFrequency(double f);
 
     void setT1(int b);
 
     void setT1C(int b);
-    
-    void setEnabled(bool e);
 
-    void runAudioCheck();
-    
-    int16_t *getSignal();
+    void setEnabled(bool e);
 
 private:
 	int T1LR_reg;
 	int T1LC_reg;
 	bool IsEnabled;
-	int T1LR_old;
-	
-	double frequency;	//This is supposed to be the CPU's frequency, but we have made the CPU's clock fixed
-	
+
+	double frequency;	//The clock timer 1 counts, which follows OCR
+
+	double phase;		//carried across frames, so the wave has no step in it
+
+	double sampleDebt;	//SAMPLE_RATE / FPS is not a whole number
+
 	int16_t *sampleArray;
-	
+
 	VE_VMS_CPU *cpu;
 	VE_VMS_RAM *ram;
 };

@@ -665,7 +665,7 @@ RETRO_API void retro_run(void)
       video_cb(frameBuffer, SCREEN_WIDTH, screenHeight(), SCREEN_WIDTH * 2);
 	
 	//Audio
-	vmu->audio->generateSignal(audio_cb);
+	vmu->audio->generateSignal(audio_batch_cb);
 }
 
 RETRO_API size_t retro_serialize_size(void) { return 0; }
