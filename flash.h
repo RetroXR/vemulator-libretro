@@ -44,6 +44,11 @@ public:
     ///Returns data
     size_t getData(byte *out);
 
+    /* The flash itself, for the frontend to persist and restore. */
+    byte *getDataPointer();
+
+    static const size_t DATA_SIZE = 0x20000;
+
 
     //Operations
     ///Returns byte at address. (No banking)

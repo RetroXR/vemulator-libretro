@@ -504,5 +504,23 @@ RETRO_API void retro_unload_game(void)
 }
 
 RETRO_API unsigned retro_get_region(void) { return RETRO_REGION_NTSC; }
-RETRO_API void *retro_get_memory_data(unsigned id) { return NULL; }
-RETRO_API size_t retro_get_memory_size(unsigned id) { return 0; }
+/* The whole 128KB of flash is the save. A VMU has no separate save area: the
+   mini-games live in the same flash the saves do, and a game writes its state
+   back into its own file through the BIOS firmware call. Handing the frontend
+   the flash rather than a private buffer also means the .srm is a VMU image,
+   usable as a .bin. */
+RETRO_API void *retro_get_memory_data(unsigned id)
+{
+   if(id != RETRO_MEMORY_SAVE_RAM || !vmu)
+      return NULL;
+
+   return vmu->flash->getDataPointer();
+}
+
+RETRO_API size_t retro_get_memory_size(unsigned id)
+{
+   if(id != RETRO_MEMORY_SAVE_RAM || !vmu)
+      return 0;
+
+   return VE_VMS_FLASH::DATA_SIZE;
+}

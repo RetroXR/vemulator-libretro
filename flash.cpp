@@ -222,6 +222,11 @@ size_t VE_VMS_FLASH::getROM(byte *out)
    return 0;
 }
 
+byte *VE_VMS_FLASH::getDataPointer()
+{
+	return data;
+}
+
 ///Returns data
 size_t VE_VMS_FLASH::getData(byte *out)
 {	
