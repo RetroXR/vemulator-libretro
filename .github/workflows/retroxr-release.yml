@@ -171,8 +171,7 @@ jobs:
           mapfile -t hits < <(find . -maxdepth 2 -name 'vemulator_libretro.so' -type f)
           if [ "${#hits[@]}" -ne 1 ]; then
             echo "expected exactly one vemulator_libretro.so, found ${#hits[@]}:"
-            printf '  %s
-' "${hits[@]}"
+            printf '  %s\n' "${hits[@]}"
             exit 1
           fi
           mkdir -p stage
@@ -207,15 +206,17 @@ jobs:
 
       - name: Build
         run: |
-          make platform=osx CC=clang CXX=clang++ CROSS_COMPILE=1             LIBRETRO_APPLE_PLATFORM=${{ matrix.triple }}             LIBRETRO_APPLE_ISYSROOT="$(xcrun --sdk macosx --show-sdk-path)"             -j$(sysctl -n hw.ncpu)
+          make platform=osx CC=clang CXX=clang++ CROSS_COMPILE=1 \
+            LIBRETRO_APPLE_PLATFORM=${{ matrix.triple }} \
+            LIBRETRO_APPLE_ISYSROOT="$(xcrun --sdk macosx --show-sdk-path)" \
+            -j$(sysctl -n hw.ncpu)
 
       - name: Package
         run: |
           mapfile -t hits < <(find . -maxdepth 2 -name 'vemulator_libretro.dylib' -type f)
           if [ "${#hits[@]}" -ne 1 ]; then
             echo "expected exactly one vemulator_libretro.dylib, found ${#hits[@]}:"
-            printf '  %s
-' "${hits[@]}"
+            printf '  %s\n' "${hits[@]}"
             exit 1
           fi
           lib="${hits[0]}"
@@ -301,5 +302,8 @@ jobs:
           fi
           gh release upload "$TAG" \
             dist/vemulator_libretro.dll.zip \
-            dist/vemulator_libretro_android.so.zip             dist/vemulator_libretro.so.zip             dist/vemulator_libretro_arm64.dylib.zip             dist/vemulator_libretro_x86_64.dylib.zip \
+            dist/vemulator_libretro_android.so.zip \
+            dist/vemulator_libretro.so.zip \
+            dist/vemulator_libretro_arm64.dylib.zip \
+            dist/vemulator_libretro_x86_64.dylib.zip \
             --repo "$GITHUB_REPOSITORY" --clobber
