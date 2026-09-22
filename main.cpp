@@ -52,11 +52,12 @@ static void fallback_log(enum retro_log_level level, const char *fmt, ...) { }
 
 static retro_log_printf_t log_cb = fallback_log;
 
-struct retro_variable options[5] = {
+struct retro_variable options[6] = {
    {"enable_flash_write", "Enable flash write (.bin, requires restart); enabled|disabled"},
    {"bios", "BIOS (requires restart); auto|american|japanese|disabled"},
    {"serial_link", "Serial link to another VMU; enabled|disabled"},
    {"icon_row", "Icon row (requires restart); enabled|disabled"},
+   {"clock", "Clock at power-on (requires restart); system|fixed"},
    { NULL, NULL }
 };
 
@@ -762,6 +763,14 @@ RETRO_API bool retro_load_game(const struct retro_game_info *game)
 
    //Joining the link bus, if the frontend hosts one
    linkAttach();
+
+   /* "fixed" powers on at the same moment on every machine, which is what a
+      netplay session needs: two peers seeding from their own wall clocks
+      differ from the first frame. */
+   var.key   = "clock";
+   var.value = NULL;
+   vmu->fixedClock = environment_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var)
+         && var.value && !strcmp(var.value, "fixed");
 
    //Initializing system
    vmu->startCPU();

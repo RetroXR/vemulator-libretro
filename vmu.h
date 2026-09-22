@@ -75,6 +75,10 @@ public:
 
     void setDate();
 
+    /* Seed setDate() with FIXED_DATE instead of the host clock. Read at load,
+       before startCPU. */
+    bool fixedClock;
+
     //Sets system variables in RAM
     void initBIOS();
 

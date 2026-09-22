@@ -16,6 +16,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 #include <streams/file_stream.h>
+#include <string.h>
 #include <time/rtime.h>
 
 #include "vmu.h"
@@ -63,6 +64,7 @@ VMU::VMU(uint16_t *_frameBuffer)
    inSleepState = false;
    BIOSExists   = false;
    linkConnectorBits = 0;
+   fixedClock   = false;
    enableSound  = true;
    useT1ELD     = false; //Some mini-game programmers (Especially homebrew creators) don't use it
    cycles_left  = 0;
@@ -177,9 +179,22 @@ void VMU::setDate()
 	struct tm timeBuf;
 	struct tm *currentTime;
 
-	time(&rawTime);
-
-	currentTime = rtime_localtime(&rawTime, &timeBuf);
+	if (fixedClock)
+	{
+		/* Saturday 1 January 2000, midnight. Built by hand rather than through
+		   localtime, which would put two peers in different time zones on
+		   different dates again. */
+		memset(&timeBuf, 0, sizeof(timeBuf));
+		timeBuf.tm_year = 100;
+		timeBuf.tm_mday = 1;
+		timeBuf.tm_wday = 6;
+		currentTime     = &timeBuf;
+	}
+	else
+	{
+		time(&rawTime);
+		currentTime = rtime_localtime(&rawTime, &timeBuf);
+	}
 
 	if(!currentTime)
 		return;

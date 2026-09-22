@@ -241,6 +241,20 @@ that had been running elsewhere takes the state, becomes byte for byte the
 first one, and runs on identically. The test has teeth: drop the program
 counter from the state and it fails at once.
 
+### Starting two machines the same
+
+Netplay also needs two machines switched on apart to be the same machine from
+the first frame, and two things stopped that. The clock is seeded from the
+host's wall clock, so the `Clock at power-on` option has a `fixed` setting:
+Saturday 1 January 2000, midnight, built by hand rather than through
+`localtime` so that peers in different time zones agree as well. And the CPU's
+instruction counter was never initialised while being part of the state, so two
+cold starts hashed differently from the first frame even when they emulated
+identically; it starts at zero now. With `fixed`, two cold starts give the same
+state at every frame, and `system` a minute apart does not -- which is the check
+that the setting is doing the work. `system` stays the default: a VMU on its
+own should know the time.
+
 ## Saves
 
 The whole 128KB of flash is the save, and the core hands it to the frontend as
