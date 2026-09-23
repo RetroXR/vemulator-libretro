@@ -281,6 +281,13 @@ void VMU::initializeHLE()
 	ram->writeByte_RAW(P7, 0x02);
 	ram->writeByte_RAW(OCR, 0xA3);
 	ram->writeByte_RAW(BTCR, 0x41);
+
+	/* Port 1 as the BIOS leaves it: P17 an output carrying timer 1's pulse,
+	   which is the buzzer. Games never set it themselves, and timer 1 only
+	   reaches the speaker through it, so without these the HLE boot is mute.
+	   Measured from the real BIOS as a game starts the timer. */
+	ram->writeByte_RAW(P1FCR, 0xBF);
+	ram->writeByte_RAW(P1DDR, 0x80);
 }
 
 void VMU::runCycle() 
