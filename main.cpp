@@ -200,11 +200,8 @@ static bool loadBIOS(void)
    return false;
 }
 
-/* Join the frontend's link bus, if it has one and the user wants it.
- *
- * The experimental number is probed first and the final one second, so a core
- * built today keeps working against a frontend that later adopts the
- * unflagged 94. */
+/* Join the frontend's link bus, if it has one and the user wants it, through
+ * the link interface (libretro/RetroArch#19454) at its EXPERIMENTAL number. */
 static void linkAttach(void)
 {
    struct retro_variable var = {0};
@@ -220,8 +217,7 @@ static void linkAttach(void)
 
    memset(&link_iface, 0, sizeof(link_iface));
 
-   if(!environment_cb(RETRO_ENVIRONMENT_GET_LINK_INTERFACE, &link_iface)
-         && !environment_cb(RETRO_ENVIRONMENT_GET_LINK_INTERFACE_FINAL, &link_iface))
+   if(!environment_cb(RETRO_ENVIRONMENT_GET_LINK_INTERFACE, &link_iface))
    {
       log_cb(RETRO_LOG_INFO,
             "[VeMUlator] frontend hosts no link bus, serial port left empty\n");
