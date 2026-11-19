@@ -200,8 +200,8 @@ static bool loadBIOS(void)
    return false;
 }
 
-/* Join the frontend's link bus, if it has one and the user wants it, through
- * the link interface (libretro/RetroArch#19454) at its EXPERIMENTAL number. */
+/* Join the frontend's link bus (libretro/RetroArch#19454), if it has one and
+ * the user wants it. */
 static void linkAttach(void)
 {
    struct retro_variable var = {0};
